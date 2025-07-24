@@ -1,0 +1,1 @@
+A web software that enable user to get daily news with ai podcast.
