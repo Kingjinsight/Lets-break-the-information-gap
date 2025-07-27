@@ -37,22 +37,27 @@ class RssSource(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     owner = relationship("User", back_populates="rss_sources")
+    
     articles = relationship(
         "Article", back_populates="source", cascade="all, delete-orphan"
     )
-
 
 class Article(Base):
     __tablename__ = "articles"
 
     id = Column(Integer, primary_key=True, index=True)
+    
     source_id = Column(Integer, ForeignKey("rss_sources.id"), nullable=False)
+    
     title = Column(String(512), nullable=False)
     content = Column(Text, nullable=False)
-    article_url = Column(String(2048), unique=True, nullable=False)
+
+    article_url = Column(String(2048), nullable=False)
+    
     fetched_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     source = relationship("RssSource", back_populates="articles")
+    
     podcasts = relationship(
         "Podcast", secondary=podcast_articles, back_populates="articles"
     )

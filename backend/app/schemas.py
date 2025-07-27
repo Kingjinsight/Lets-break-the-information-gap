@@ -3,10 +3,14 @@ from datetime import datetime
 from typing import List, Optional
 
 # Article
-
 class ArticleBase(BaseModel):
     title: str
     article_url: str
+    content: str
+
+class ArticleCreate(ArticleBase):
+    pass
+
 
 class Article(ArticleBase):
     id: int
@@ -15,6 +19,7 @@ class Article(ArticleBase):
 
     class Config:
         from_attributes = True
+
 
 # RSS
 
@@ -28,7 +33,7 @@ class RssSourceCreate(RssSourceBase):
 class RssSource(RssSourceBase):
     id: int
     created_at: datetime
-    owner_id: int
+    user_id: int
 
 
     class Config:
