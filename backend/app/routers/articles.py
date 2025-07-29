@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from app import crud, schemas, models
 from app.database import get_db
@@ -9,27 +9,33 @@ from app.services.rss_parser import fetch_rss_feed
 
 router = APIRouter()
 
-@router.post("/fetch/{source_id}", status_code=status.HTTP_200_OK)
-async def fetch_articles_from_source(
-    source_id: int,
+
+@router.get("/today", response_model=List[schemas.Article])
+async def get_today_articles(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    source = await crud.get_source_by_id(db, source_id=source_id, user_id=current_user.id)
-    if not source:
-        raise HTTPException(status_code=404, detail="RSS Source not found")
+    """Get today's article list"""
+    articles = await crud.get_articles_for_today(db, current_user.id)
+    return articles
+
+@router.post("/select-for-podcast")
+async def create_podcast_from_selected_articles(
+    article_ids: List[int],
+    title: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Generate podcast from selected articles"""
+    # Validate articles belong to current user
+    articles = await crud.get_articles_by_ids(db, article_ids)
+    valid_articles = []
     
-    fetched_articles = await fetch_rss_feed(source.url)
-    if not fetched_articles:
-        return {"message": "No new articles found or feed could not be processed."}
-        
-    new_articles_count = 0
-    for article_data in fetched_articles:
-        article_schema = schemas.ArticleCreate(**article_data)
-        await crud.create_article(db, article=article_schema, source_id=source_id)
-        new_articles_count += 1
-            
-    await db.commit()
-            
-    return {"message": f"Successfully fetched and saved {new_articles_count} new articles."}
+    for article in articles:
+        # Check if article belongs to user's RSS sources
+        if article.source.user_id == current_user.id:
+            valid_articles.append(article)
+    
+    if not valid_articles:
+        raise HTTPException(status_code=400, detail="No valid articles selected")
 

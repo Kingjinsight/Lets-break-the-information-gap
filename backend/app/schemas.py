@@ -1,28 +1,38 @@
-from pydantic import BaseModel
+# backend/app/schemas.py - Fixed version
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
-# Article
+# ======================= Article =======================
 class ArticleBase(BaseModel):
     title: str
     article_url: str
     content: str
 
 class ArticleCreate(ArticleBase):
-    pass
-
+    author: Optional[str] = 'Unknown Author'
+    published_date: Optional[datetime] = None
+    fetched_at: Optional[datetime] = None
 
 class Article(ArticleBase):
     id: int
-    content: str
+    author: Optional[str] = None  
+    published_date: Optional[datetime] = None
     fetched_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
+# ======================= Simplified Article Model (for use in podcasts) =======================
+class ArticleInPodcast(BaseModel):
+    """Simplified article info displayed in podcasts"""
+    id: int
+    title: str
+    author: Optional[str] = None
+    published_date: Optional[datetime] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
-# RSS
-
+# ======================= RSS Source =======================
 class RssSourceBase(BaseModel):
     url: str
     name: Optional[str] = None
@@ -35,30 +45,49 @@ class RssSource(RssSourceBase):
     created_at: datetime
     user_id: int
 
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
-
-# Podcast
-
+# ======================= Podcast =======================
 class PodcastBase(BaseModel):
-    pass
+    title: Optional[str] = None
+    script: Optional[str] = None
+    audio_file_path: str
 
-class PodcastCreate(PodcastBase):
+class PodcastCreate(BaseModel):
     article_ids: List[int]
 
 class Podcast(PodcastBase):
     id: int
+    created_at: datetime
+    owner_id: int
+    articles: List[ArticleInPodcast] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PodcastResponse(BaseModel):
+    """Podcast response schema for API endpoints"""
+    id: int
+    title: Optional[str] = None
+    script: Optional[str] = None
     audio_file_path: str
     created_at: datetime
     owner_id: int
-    articles: List[Article] = []
+    articles: List[ArticleInPodcast] = []
+    
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
 
-# User
+# ======================= Simplified Podcast Model (for use in user) =======================
+class PodcastSummary(BaseModel):
+    """Simplified podcast info displayed in user info"""
+    id: int
+    title: Optional[str] = None
+    created_at: datetime
+    audio_file_path: str
+    
+    model_config = ConfigDict(from_attributes=True)
 
+# ======================= User =======================
 class UserBase(BaseModel):
     email: str
     username: str
@@ -70,14 +99,11 @@ class User(UserBase):
     id: int
     created_at: datetime
     rss_sources: List[RssSource] = []
-    podcasts: List[Podcast] = []
+    podcasts: List[PodcastSummary] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
-
-# Token
-
+# ======================= Other models remain unchanged =======================
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -88,3 +114,28 @@ class TokenData(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+
+class RssValidationResult(BaseModel):
+    valid: bool
+    error: Optional[str] = None
+    details: Optional[str] = None
+    feed_info: Optional[Dict] = None
+
+class RssValidationResponse(BaseModel):
+    url: str
+    validation: RssValidationResult
+    is_duplicate: bool
+    message: str
+
+class PodcastConfig(BaseModel):
+    duration_minutes: int = 15
+    voice_joe: str = "charon"
+    voice_jane: str = "aoede" 
+    include_overview: bool = True
+    max_articles: Optional[int] = None
+    preferred_categories: List[str] = []
+
+class PodcastCreateEnhanced(BaseModel):
+    article_ids: List[int]
+    title: Optional[str] = None
+    config: Optional[PodcastConfig] = None

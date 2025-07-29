@@ -51,9 +51,11 @@ class Article(Base):
     
     title = Column(String(512), nullable=False)
     content = Column(Text, nullable=False)
+    author = Column(String(255), nullable=True, default='Unknown Author')
+
 
     article_url = Column(String(2048), nullable=False)
-    
+    published_date = Column(DateTime, nullable=True)
     fetched_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     source = relationship("RssSource", back_populates="articles")
@@ -67,7 +69,9 @@ class Podcast(Base):
     __tablename__ = "podcasts"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(512), nullable=True)
+    script = Column(Text, nullable=True)
     audio_file_path = Column(String(2048), nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 

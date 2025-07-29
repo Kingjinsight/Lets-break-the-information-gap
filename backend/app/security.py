@@ -3,11 +3,12 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from app.config import settings
 
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-SECRET_KEY = "a_very_secret_key_that_must_be_changed"
+SECRET_KEY = getattr(settings, 'jwt_secret_key', 'fallback_secret_key_change_in_production')
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
