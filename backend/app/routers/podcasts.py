@@ -17,6 +17,17 @@ from app.tasks import generate_podcast_task
 
 router = APIRouter()
 
+# Helper function to validate API key
+async def validate_user_api_key(db: AsyncSession, user_id: int):
+    """Check if user has a Google API key configured"""
+    user_settings = await crud.get_user_settings(db, user_id)
+    if not user_settings.google_api_key or not user_settings.google_api_key.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Google API key is required for podcast generation. Please configure your API key in Settings."
+        )
+    return user_settings.google_api_key
+
 # ======================= Core Podcast Features =======================
 
 @router.post("/create", status_code=status.HTTP_201_CREATED)
@@ -29,6 +40,8 @@ async def create_podcast(
     """Create a podcast from selected articles"""
     try:
         user_id = current_user.id
+    
+        api_key = await validate_user_api_key(db, user_id)
         
         # Get articles
         articles = []
@@ -87,6 +100,74 @@ async def create_podcast(
         print(f"❌ Create podcast error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/from-articles")
+async def create_podcast_from_articles(
+    request: schemas.PodcastCreateEnhanced,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Create podcast from selected article IDs"""
+    try:
+        user_id = current_user.id
+        
+        api_key = await validate_user_api_key(db, user_id)
+        
+        articles = []
+        articles_data = []
+        for article_id in request.article_ids:
+            article = await crud.get_article_by_id(db, article_id, user_id)
+            if not article:
+                raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+            articles.append(article)
+            
+            articles_data.append({
+                "id": article.id,
+                "title": article.title,
+                "content": article.content,
+                "author": getattr(article, 'author', 'Unknown Author'),
+                "article_url": getattr(article, 'article_url', '')
+            })
+        
+        # Create podcast
+        podcast_title = request.title or f"Custom Podcast - {datetime.now().strftime('%Y-%m-%d')}"
+        
+        db_podcast = models.Podcast(
+            owner_id=user_id,
+            title=podcast_title,
+            script="",
+            audio_file_path=""
+        )
+        
+        for article in articles:
+            db_podcast.articles.append(article)
+        
+        db.add(db_podcast)
+        await db.commit()
+        await db.refresh(db_podcast)
+        
+        podcast_id = db_podcast.id  # Extract podcast ID
+        
+        # Submit Celery task with extracted data
+        task = generate_podcast_task.delay(
+            podcast_id=podcast_id,
+            user_id=user_id,
+            articles_data=articles_data
+        )
+        
+        return {
+            "message": "Podcast creation started",
+            "podcast_id": podcast_id,
+            "title": podcast_title,
+            "task_id": task.id,
+            "articles_count": len(articles),
+            "status": "processing"
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        print(f"❌ Create podcast from articles error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/generate-today")
 async def generate_today_podcast(
     title: Optional[str] = None,
@@ -99,6 +180,9 @@ async def generate_today_podcast(
         
         user_id = current_user.id
         print(f"🔍 User ID extracted: {user_id}")
+        
+        # Validate API key first
+        api_key = await validate_user_api_key(db, user_id)
         
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=8)
         

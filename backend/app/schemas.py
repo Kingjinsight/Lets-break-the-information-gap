@@ -13,14 +13,29 @@ class ArticleCreate(ArticleBase):
     author: Optional[str] = 'Unknown Author'
     published_date: Optional[datetime] = None
     fetched_at: Optional[datetime] = None
+    source_id: int
+    summary: Optional[str] = None
 
 class Article(ArticleBase):
     id: int
     author: Optional[str] = None  
     published_date: Optional[datetime] = None
+    published_at: Optional[datetime] = None  # 添加这个字段，作为published_date的别名
     fetched_at: datetime
-
+    created_at: Optional[datetime] = None
+    source_id: int
+    summary: Optional[str] = None  # 添加摘要字段
+    is_read: bool = False  # 添加阅读状态
+    read_at: Optional[datetime] = None  # 添加阅读时间
+    link: Optional[str] = None  # 添加链接字段作为article_url的别名
+    source: Optional['RssSource'] = None  # 添加关联的RSS源
+    
     model_config = ConfigDict(from_attributes=True)
+
+    # 添加一个属性来确保链接字段的兼容性
+    @property
+    def url(self) -> str:
+        return self.link or self.article_url
 
 # ======================= Simplified Article Model (for use in podcasts) =======================
 class ArticleInPodcast(BaseModel):
@@ -103,6 +118,31 @@ class User(UserBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+# Simplified User schema without relationships (for auth endpoints)
+class UserProfile(UserBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+# ======================= User Settings =======================
+class UserSettingsBase(BaseModel):
+    google_api_key: Optional[str] = None
+
+class UserSettingsCreate(UserSettingsBase):
+    pass
+
+class UserSettingsUpdate(BaseModel):
+    google_api_key: Optional[str] = None
+
+class UserSettings(UserSettingsBase):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
 # ======================= Other models remain unchanged =======================
 class Token(BaseModel):
     access_token: str
@@ -114,6 +154,9 @@ class TokenData(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+
+class RssValidationRequest(BaseModel):
+    url: str
 
 class RssValidationResult(BaseModel):
     valid: bool

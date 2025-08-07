@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Table
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Table, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -57,6 +57,11 @@ class Article(Base):
     article_url = Column(String(2048), nullable=False)
     published_date = Column(DateTime, nullable=True)
     fetched_at = Column(DateTime, server_default=func.now(), nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    summary = Column(Text, nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False)
+    read_at = Column(DateTime, nullable=True)
 
     source = relationship("RssSource", back_populates="articles")
     
@@ -72,11 +77,26 @@ class Podcast(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(512), nullable=True)
     script = Column(Text, nullable=True)
-    audio_file_path = Column(String(2048), nullable=False)
+    audio_file_path = Column(String(2048), nullable=True)  # Make nullable
+    status = Column(String(50), default="pending", nullable=False)  # Add status field
+    error_message = Column(Text, nullable=True)  # Add error message field
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    generated_at = Column(DateTime, nullable=True)  # Add generated_at field
 
     owner = relationship("User", back_populates="podcasts")
     articles = relationship(
         "Article", secondary=podcast_articles, back_populates="podcasts"
     )
+
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    google_api_key = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    user = relationship("User", backref="settings")
 

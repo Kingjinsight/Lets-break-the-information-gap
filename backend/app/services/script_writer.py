@@ -2,8 +2,6 @@ import google.genai as genai
 from app.config import settings
 from datetime import datetime
 
-client = genai.Client(api_key=settings.google_api_key)
-
 def create_script_prompt(articles: list) -> str:
     """Creates a morning news podcast script with source attribution."""
     
@@ -67,6 +65,7 @@ You are a professional scriptwriter for "Daily Briefing" - a personalized mornin
 **Style Guidelines**:
 - Length: The script should have 800 - 1200 words 
 - Time: The podcast should play in 8 to 12 minutes.
+- If the number of articles exceed 50, try to catch interesting topic among articles, and keep the numbr of articles that used to generate podcast below 50. 
 - {time_greeting} energy - warm and welcoming
 - Acknowledge this is their personal news briefing from their RSS feeds
 - Mention article authors and sources naturally (e.g., "According to Sarah Johnson from TechCrunch...")
@@ -131,11 +130,15 @@ def extract_source_name(url: str) -> str:
     except Exception:
         return "Unknown Source"
 
-def generate_script_from_articles(articles: list) -> str:
+def generate_script_from_articles(articles: list, api_key: str = None) -> str:
     """Generates a personalized morning news podcast script."""
     print(f"🌅 Generating personalized morning briefing for {len(articles)} stories...")
     
     prompt = create_script_prompt(articles)
+    
+    # Use user's API key if provided, otherwise fall back to system default
+    google_api_key = api_key or settings.google_api_key
+    client = genai.Client(api_key=google_api_key)
     
     try:
         response = client.models.generate_content(

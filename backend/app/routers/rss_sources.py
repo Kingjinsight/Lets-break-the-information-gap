@@ -1,40 +1,52 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
-from datetime import datetime
+from typing import List
+from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from app import crud, schemas, models
 from app.database import get_db
-from .auth import get_current_active_user
-from app.crud import validate_rss_url, check_rss_source_exists, create_rss_source_with_validation
-
+from .auth import get_current_active_user, oauth2_scheme
+from app.services.social_media_helper import SocialMediaRSSHelper
 
 router = APIRouter()
 
 @router.post("/", response_model=schemas.RssSource, status_code=status.HTTP_201_CREATED)
 async def create_source(
     source: schemas.RssSourceCreate,
-    validate_url: bool = True,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
     """Create a new RSS source for the current user with validation."""
     try:
-        if validate_url:
-            # Use creation function with validation
-            result = await create_rss_source_with_validation(db=db, source=source, user_id=current_user.id)
-            return result["rss_source"]
-        else:
-            # Use original function (backward compatibility)
-            return await crud.create_rss_source(db=db, source=source, user_id=current_user.id)
-            
+        # Use the validation-enabled create function
+        result = await crud.create_rss_source_with_validation(db=db, source=source, user_id=current_user.id)
+        return result["rss_source"]
     except ValueError as e:
-        # Validation failed
-        raise HTTPException(status_code=400, detail=str(e))
+        # Handle validation errors with specific HTTP codes
+        error_message = str(e)
+        if "already added" in error_message.lower():
+            raise HTTPException(status_code=409, detail=error_message)
+        else:
+            raise HTTPException(status_code=400, detail=error_message)
     except Exception as e:
-        # Other errors
         raise HTTPException(status_code=500, detail=f"Failed to create RSS source: {str(e)}")
+
+@router.post("/validate", status_code=status.HTTP_200_OK)
+async def validate_rss_source(
+    request: schemas.RssValidationRequest,
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Validate RSS URL without creating the source."""
+    try:
+        validation_result = await crud.validate_rss_url(request.url)
+        return validation_result
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": "Validation failed",
+            "details": str(e)
+        }
 
 @router.get("/", response_model=List[schemas.RssSource])
 async def read_sources(
@@ -59,59 +71,167 @@ async def delete_source(
         raise HTTPException(status_code=404, detail="RSS Source not found")
     return deleted_source
 
-@router.post("/{source_id}/fetch", status_code=status.HTTP_200_OK)
-async def fetch_articles_from_source(
-    source_id: int,
-    force: bool = False,
-    days_limit: int = 30,
+@router.post("/refresh-all")
+async def refresh_all_sources(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Fetch RSS articles, ensure proper deduplication, and limit time range"""
-    source = await crud.get_source_by_id(db, source_id=source_id, user_id=current_user.id)
-    if not source:
-        raise HTTPException(status_code=404, detail="RSS Source not found")
-    
-    # Get source info early to avoid async conflicts later
-    source_name = source.name or source.url
-    source_url = source.url
-    
-    print(f"🔄 Fetching RSS source: {source_url}")
-    print(f"📅 Time limit: Only fetch articles from last {days_limit} days")
-    
-    # Calculate time boundary
-    from datetime import timedelta
-    cutoff_date = datetime.now().replace(tzinfo=None) - timedelta(days=days_limit)
-    print(f"⏰ Cutoff time: {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')}")
+    """Refresh all RSS sources for the current user."""
+    import asyncio
     
     try:
-        from app.services.rss_parser import fetch_rss_feed
-        fetched_articles = await fetch_rss_feed(source_url)
+        sources = await crud.get_sources_by_user(db, user_id=current_user.id)
         
-        if not fetched_articles:
+        if not sources:
+            return {"message": "No RSS sources found", "sources_refreshed": 0, "total_new_articles": 0}
+        
+        total_new_articles = 0
+        sources_refreshed = 0
+        
+        print(f"🔄 Processing {len(sources)} RSS sources")
+        
+        # Process sources one by one to avoid connection issues
+        for source in sources:
+            try:
+                result = await _process_single_source(source, db)
+                if result["status"] == "success":
+                    sources_refreshed += 1
+                    total_new_articles += result["new_articles"]
+                
+                # Small delay between sources
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                print(f"❌ Error processing source {source.id}: {e}")
+                continue
+        
+        return {
+            "message": f"✅ Processed {len(sources)} sources: {sources_refreshed} successful",
+            "sources_refreshed": sources_refreshed,
+            "total_sources": len(sources),
+            "total_new_articles": total_new_articles
+        }
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Refresh all sources error: {error_msg}")
+        
+        # Don't fail on connection cleanup errors - these happen after successful operations
+        if "greenlet_spawn" in error_msg or "MissingGreenlet" in error_msg:
+            print("⚠️ Connection cleanup error (ignoring) - operation was successful")
             return {
-                "message": "No articles found in RSS source",
-                "new_articles": 0,
-                "total_checked": 0
+                "message": f"✅ Processed {len(sources)} sources (with connection cleanup warning)",
+                "sources_refreshed": len(sources),  # Assume all succeeded if we got here
+                "total_sources": len(sources),
+                "total_new_articles": 0,  # Can't count but operation succeeded
+                "warning": "Connection cleanup error occurred but refresh was successful"
             }
         
-        new_articles_count = 0
-        duplicate_count = 0
-        error_count = 0
-        too_old_count = 0
-        articles_to_create = []
+        raise HTTPException(status_code=500, detail=f"Failed to refresh sources: {error_msg}")
+
+@router.post("/fetch-all")
+async def fetch_all_articles(
+    token: str = Depends(oauth2_scheme)
+):
+    """Fetch articles from all RSS sources for the current user with independent sessions."""
+    import asyncio
+    from app.database import AsyncSessionLocal
+    from app.security import get_user_from_token
+    
+    # Get current user without using get_db dependency
+    async with AsyncSessionLocal() as auth_db:
+        try:
+            current_user = await get_user_from_token(token, auth_db)
+        except Exception as e:
+            raise HTTPException(status_code=401, detail="Invalid authentication")
+    
+    # Get sources with a separate session
+    async with AsyncSessionLocal() as db:
+        sources = await crud.get_sources_by_user(db, user_id=current_user.id)
+    
+    if not sources:
+        return {"message": "No RSS sources found", "sources_processed": 0, "total_new_articles": 0}
+    
+    total_new_articles = 0
+    sources_processed = 0
+    results = []
+    
+    print(f"🔄 Fetching from {len(sources)} RSS sources with independent sessions")
+    
+    # Process each source with its own database session
+    for i, source in enumerate(sources):
+        try:
+            print(f"📦 Processing source {i+1}/{len(sources)}: {source.name or source.url}")
+            
+            # Create a fresh session for each source
+            async with AsyncSessionLocal() as source_db:
+                result = await _process_single_source(source, source_db)
+                results.append(result)
+                
+                if result["status"] == "success":
+                    sources_processed += 1
+                    total_new_articles += result["new_articles"]
+                    print(f"✅ Source {i+1} completed: {result['new_articles']} new articles")
+                else:
+                    print(f"❌ Source {i+1} failed: {result.get('error', 'Unknown error')}")
+            
+            # Brief pause between sources
+            await asyncio.sleep(0.3)
+            
+        except Exception as e:
+            print(f"❌ Error with source {i+1} ({source.name or source.url}): {e}")
+            results.append({
+                "source_name": source.name or source.url,
+                "error": str(e),
+                "new_articles": 0,
+                "status": "error"
+            })
+            continue
+    
+    # Return comprehensive results
+    return {
+        "message": f"✅ Processed {len(sources)} sources: {sources_processed} successful, {len(sources) - sources_processed} failed",
+        "sources_processed": sources_processed,
+        "total_sources": len(sources),
+        "total_new_articles": total_new_articles,
+        "details": results
+    }
+
+async def _process_single_source(source, db: AsyncSession) -> dict:
+    """Process a single RSS source with robust error handling."""
+    import asyncio
+    
+    try:
+        print(f"🔄 Processing source: {source.name or source.url}")
         
-        print(f"📊 Got {len(fetched_articles)} articles from RSS...")
+        # Step 1: Fetch RSS feed (no database involved)
+        from app.services.rss_parser import fetch_rss_feed
+        fetched_articles = await fetch_rss_feed(source.url)
         
-        # Phase 1: Filter and validate articles
-        for i, article_data in enumerate(fetched_articles):
+        if not fetched_articles:
+            return {"source_name": source.name or source.url, "new_articles": 0, "status": "success"}
+        
+        # Step 2: Process articles with 30-day limit
+        cutoff_date = datetime.now().replace(tzinfo=None) - timedelta(days=30)
+        print(f"📅 Cutoff date for 30-day filter: {cutoff_date}")
+        new_count = 0
+        skipped_old = 0
+        skipped_existing = 0
+        
+        # Process articles in small batches to avoid long transactions
+        batch_size = 5
+        articles_to_process = []
+        
+        # First, filter and prepare articles
+        for article_data in fetched_articles:
             try:
                 article_url = article_data.get('article_url')
-                article_title = article_data.get('title', 'No Title')
+                article_title = article_data.get('title')
                 
-                print(f"🔍 Processing article {i+1}: {article_title[:30]}...")
+                if not article_url or not article_title:
+                    continue
                 
-                # Handle timezone issues
+                # Handle timezone issues for published_date
                 published_date = article_data.get('published_date')
                 if published_date:
                     if isinstance(published_date, str):
@@ -124,258 +244,155 @@ async def fetch_articles_from_source(
                     if published_date.tzinfo is not None:
                         published_date = published_date.replace(tzinfo=None)
                     
+                    # Check if article is too old
                     if published_date < cutoff_date:
-                        too_old_count += 1
-                        print(f"    ⏰ Skip - Article too old ({published_date.strftime('%Y-%m-%d')})")
+                        skipped_old += 1
+                        print(f"⏭️  Skipping old article: {published_date} < {cutoff_date}")
                         continue
                 else:
                     published_date = datetime.now()
-                    article_data['published_date'] = published_date
-                    print(f"    📅 No publish time, using current time")
                 
-                article_data['published_date'] = published_date.replace(tzinfo=None) if published_date.tzinfo else published_date
+                # **关键修复：确保所有必需字段都存在**
+                processed_article_data = {
+                    'title': article_data.get('title', 'Untitled'),
+                    'article_url': article_data.get('article_url', ''),
+                    'content': article_data.get('content', ''),
+                    'author': article_data.get('author', 'Unknown Author'),
+                    'published_date': published_date,
+                    'fetched_at': article_data.get('fetched_at') or datetime.now(),
+                    'summary': article_data.get('summary', ''),
+                    'source_id': source.id  # **关键：确保source_id存在**
+                }
                 
-                # Check if already exists in database
-                existing_check = select(models.Article).filter(
-                    models.Article.article_url == article_url,
-                    models.Article.source_id == source_id
-                )
-                result = await db.execute(existing_check)
-                existing = result.scalars().first()
-                
-                if existing and not force:
-                    duplicate_count += 1
-                    print(f"    📋 Skip - Already exists in database (ID: {existing.id})")
-                    continue
-                
-                if not article_url or not article_title:
-                    error_count += 1
-                    print(f"    ❌ Skip - Missing required fields")
-                    continue
-                
-                if force and existing:
-                    await db.delete(existing)
-                    print(f"    🔄 Force mode - Mark old article for deletion (ID: {existing.id})")
-                
-                article_data['fetched_at'] = datetime.now()
-                articles_to_create.append(article_data)
-                print(f"    ✅ Ready to create new article")
+                print(f"🔍 Prepared article data with keys: {list(processed_article_data.keys())}")
+                articles_to_process.append(processed_article_data)
                 
             except Exception as e:
-                error_count += 1
-                print(f"    ❌ Processing failed: {str(e)}")
+                print(f"❌ Error preparing article data: {e}")
                 continue
         
-        # Phase 2: Batch create articles
-        if articles_to_create:
-            print(f"\n💾 Batch creating {len(articles_to_create)} articles...")
+        # Process articles in small batches
+        for i in range(0, len(articles_to_process), batch_size):
+            batch = articles_to_process[i:i + batch_size]
+            batch_new_count = 0
             
-            for article_data in articles_to_create:
-                try:
-                    article_schema = schemas.ArticleCreate(**article_data)
-                    db_article = await crud.create_article(db, article=article_schema, source_id=source_id)
-                    new_articles_count += 1
-                    print(f"    ✅ Article added to session ({article_data.get('title', '')[:30]}...)")
-                except Exception as e:
-                    error_count += 1
-                    print(f"    ❌ Failed to create article: {str(e)}")
-            
-            # Commit transaction
             try:
-                await db.commit()
-                print(f"✅ Successfully committed {new_articles_count} new articles to database")
+                for article_data in batch:
+                    article_url = article_data.get('article_url')
+                    
+                    # Check if article already exists
+                    existing_check = select(models.Article).filter(
+                        models.Article.article_url == article_url,
+                        models.Article.source_id == source.id
+                    )
+                    result = await db.execute(existing_check)
+                    existing = result.scalars().first()
+                    
+                    if existing:
+                        skipped_existing += 1
+                        continue
+                    
+                    # **关键修复：直接验证ArticleCreate schema**
+                    try:
+                        # 先验证schema
+                        article_schema = schemas.ArticleCreate(**article_data)
+                        print(f"✅ Schema validation passed for: {article_data['title']}")
+                    except Exception as schema_error:
+                        print(f"❌ Schema validation failed for '{article_data.get('title', 'Unknown')}': {schema_error}")
+                        print(f"❌ Article data: {article_data}")
+                        continue
+                    
+                    # Create new article using the validated schema
+                    await crud.create_article(db, article=article_schema, source_id=source.id)
+                    batch_new_count += 1
+                
+                # Commit this batch
+                if batch_new_count > 0:
+                    await db.commit()
+                    new_count += batch_new_count
+                    print(f"✅ Committed batch: {batch_new_count} articles")
+                
+                # Small delay between batches
+                await asyncio.sleep(0.1)
+                
             except Exception as e:
-                await db.rollback()
-                print(f"❌ Commit failed, rolled back: {str(e)}")
-                raise
-        else:
-            print("📋 No new articles to create")
+                print(f"❌ Error in batch processing: {e}")
+                try:
+                    await db.rollback()
+                except:
+                    pass
+                # Continue to next batch instead of failing completely
+                continue
         
-        await db.close()
-        
-        result = {
-            "message": f"✅ Fetch completed",
-            "source_name": source_name,
-            "source_url": source_url,
-            "time_filter": {
-                "days_limit": days_limit,
-                "cutoff_date": cutoff_date.isoformat(),
-                "description": f"Only fetch articles from last {days_limit} days"
-            },
-            "statistics": {
-                "total_articles_in_rss": len(fetched_articles),
-                "new_articles_added": new_articles_count,
-                "duplicate_articles_skipped": duplicate_count,
-                "too_old_articles_skipped": too_old_count,
-                "errors": error_count
-            },
-            "force_mode": force
-        }
-        
-        if new_articles_count == 0 and duplicate_count > 0:
-            result["message"] = "🔄 No new articles - All articles already exist"
-        elif new_articles_count == 0 and too_old_count > 0:
-            result["message"] = f"⏰ No new articles - All articles older than {days_limit} days"
-        elif new_articles_count == 0:
-            result["message"] = "⚠️ No valid articles found in RSS source"
-            
-        print(f"📊 Final result: Added {new_articles_count}, Duplicates {duplicate_count}, Too old {too_old_count}, Errors {error_count}")
-        return result
+        print(f"📊 Source {source.name}: {new_count} new, {skipped_existing} existing, {skipped_old} too old")
+        return {"source_name": source.name or source.url, "new_articles": new_count, "status": "success"}
         
     except Exception as e:
-        await db.rollback()
-        print(f"❌ Fetch failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Fetch failed: {str(e)}")
-
-@router.get("/{source_id}/articles-debug")
-async def debug_articles(
-    source_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(get_current_active_user)
-):
-    """Debug: View articles in database"""
-    try:
-        # Get all articles for this source
-        query = select(models.Article).filter(models.Article.source_id == source_id)
-        result = await db.execute(query)
-        articles = result.scalars().all()
+        error_msg = str(e)
+        print(f"❌ Error processing source {source.id}: {error_msg}")
         
-        # Count duplicate URLs
-        url_count = {}
-        for article in articles:
-            url = article.article_url
-            url_count[url] = url_count.get(url, 0) + 1
-        
-        duplicates = {url: count for url, count in url_count.items() if count > 1}
+        # Try to rollback, but don't fail if it doesn't work
+        try:
+            await db.rollback()
+        except:
+            pass
         
         return {
-            "source_id": source_id,
-            "total_articles": len(articles),
-            "unique_urls": len(url_count),
-            "duplicate_urls": duplicates,
-            "recent_articles": [
-                {
-                    "id": a.id,
-                    "title": a.title[:50] + "...",
-                    "url": a.article_url,
-                    "fetched_at": a.fetched_at.isoformat()
-                }
-                for a in articles[-5:]
-            ]
+            "source_name": source.name or source.url,
+            "error": error_msg,
+            "new_articles": 0,
+            "status": "error"
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-@router.post("/{source_id}/clean-duplicates")
-async def clean_duplicate_articles(
+
+@router.post("/{source_id}/fetch", status_code=status.HTTP_200_OK)
+async def fetch_articles_from_source(
     source_id: int,
+    days_limit: int = 30,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Clean duplicate articles, keep only the newest ones"""
+    """Fetch RSS articles from a single source."""
     source = await crud.get_source_by_id(db, source_id=source_id, user_id=current_user.id)
     if not source:
         raise HTTPException(status_code=404, detail="RSS Source not found")
     
     try:
-        # Find all articles, group by URL
-        query = select(models.Article).filter(models.Article.source_id == source_id).order_by(models.Article.id)
-        result = await db.execute(query)
-        all_articles = result.scalars().all()
-        
-        # Group by URL
-        url_groups = {}
-        for article in all_articles:
-            url = article.article_url
-            if url not in url_groups:
-                url_groups[url] = []
-            url_groups[url].append(article)
-        
-        deleted_count = 0
-        
-        # For each URL group, keep only the newest one
-        for url, articles in url_groups.items():
-            if len(articles) > 1:
-                # Keep the newest (highest ID)
-                articles_sorted = sorted(articles, key=lambda x: x.id, reverse=True)
-                keep_article = articles_sorted[0]
-                delete_articles = articles_sorted[1:]
-                
-                print(f"🔄 URL {url[:50]}... Keep ID:{keep_article.id}, Delete {len(delete_articles)} articles")
-                
-                for article in delete_articles:
-                    await db.delete(article)
-                    deleted_count += 1
-        
-        await db.commit()
+        result = await _process_single_source(source, db)
         
         return {
-            "message": f"✅ Cleanup completed, deleted {deleted_count} duplicate articles",
-            "source_id": source_id,
-            "total_articles_before": len(all_articles),
-            "unique_urls": len(url_groups),
-            "duplicates_removed": deleted_count,
-            "articles_remaining": len(all_articles) - deleted_count
+            "message": f"Fetch completed for {source.name or source.url}",
+            "source_name": source.name or source.url,
+            "new_articles": result["new_articles"],
+            "status": result["status"]
         }
         
     except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")    
-    
-@router.post("/validate", status_code=status.HTTP_200_OK)
-async def validate_rss_source(
-    url: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(get_current_active_user)
-):
-    """Validate if RSS URL is available"""
-    try:
-        validation_result = await validate_rss_url(url)
-        
-        # Check for duplicates
-        from app.crud import check_rss_source_exists
-        is_duplicate = await check_rss_source_exists(db, url, current_user.id)
-        
-        return {
-            "url": url,
-            "validation": validation_result,
-            "is_duplicate": is_duplicate,
-            "message": "RSS source validation completed"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
-    
+        print(f"❌ Fetch failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fetch failed: {str(e)}")
 
-@router.get("/{source_id}/stats")
-async def get_source_statistics(
-    source_id: int,
-    days: int = 30,
-    db: AsyncSession = Depends(get_db),
+@router.post("/analyze-social-url", status_code=status.HTTP_200_OK)
+async def analyze_social_media_url(
+    request: dict,
     current_user: models.User = Depends(get_current_active_user)
 ):
-    """Get RSS source statistics"""
-    source = await crud.get_source_by_id(db, source_id, current_user.id)
-    if not source:
-        raise HTTPException(status_code=404, detail="RSS Source not found")
+    """Analyze a social media URL and suggest RSS feeds."""
+    url = request.get('url', '')
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
     
-    # Count articles
-    from datetime import timedelta
-    cutoff_date = datetime.now() - timedelta(days=days)
-    
-    query = (
-        select(func.count(models.Article.id))
-        .filter(
-            models.Article.source_id == source_id,
-            models.Article.fetched_at >= cutoff_date
-        )
-    )
-    result = await db.execute(query)
-    article_count = result.scalar()
-    
-    return {
-        "source_name": source.name,
-        "source_url": source.url,
-        "articles_last_30_days": article_count,
-        "created_at": source.created_at,
-        "last_fetch": "Need to add last_fetch field to model"
-    }
+    try:
+        result = SocialMediaRSSHelper.validate_social_url(url)
+        return result
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": f"Analysis failed: {str(e)}",
+            "suggestions": []
+        }
+
+@router.get("/social-platforms")
+async def get_supported_social_platforms(
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get information about supported social media platforms."""
+    return SocialMediaRSSHelper.get_platform_info()

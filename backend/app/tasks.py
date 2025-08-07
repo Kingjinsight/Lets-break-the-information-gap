@@ -9,7 +9,6 @@ from datetime import datetime
 import asyncio
 import os
 
-# Create synchronous database engine - Fix URL conversion issue
 def get_sync_database_url():
     """Convert async database URL to sync version"""
     url = settings.database_url
@@ -28,16 +27,15 @@ def get_sync_database_url():
     print(f"🔄 Converted URL: {sync_url[:50]}...")
     return sync_url
 
+# Initialize sync database connection for Celery
 try:
     sync_database_url = get_sync_database_url()
     
-    # Create sync engine, use psycopg2
     sync_engine = create_engine(
         sync_database_url,
         echo=False,
         pool_pre_ping=True,
         pool_recycle=300,
-        # Explicitly specify using psycopg2 driver
         connect_args={
             "options": "-c timezone=utc"
         }
@@ -60,15 +58,25 @@ def generate_podcast_task(self, podcast_id: int, user_id: int, articles_data: li
         if not SyncSessionLocal:
             raise Exception("Database connection not available in Celery worker")
         
-        # Update progress: Start processing
+        # Get user's Google API key from settings
+        user_google_api_key = None
+        with SyncSessionLocal() as db:
+            user_settings_query = select(models.UserSettings).filter(models.UserSettings.user_id == user_id)
+            user_settings = db.execute(user_settings_query).scalars().first()
+            if user_settings and user_settings.google_api_key:
+                user_google_api_key = user_settings.google_api_key
+                print(f"✅ Using user's Google API key")
+            else:
+                print(f"⚠️ No user API key found, using system default")
+        
         self.update_state(
             state='PROGRESS',
             meta={'current': 10, 'total': 100, 'status': 'Generating script...'}
         )
         
-        # 1. Generate script
+        # 1. Generate script with user's API key
         print(f"📝 Starting script generation for {len(articles_data)} articles...")
-        script = script_writer.generate_script_from_articles(articles_data)
+        script = script_writer.generate_script_from_articles(articles_data, api_key=user_google_api_key)
         
         if not script:
             raise Exception("Script generation failed")
@@ -87,8 +95,8 @@ def generate_podcast_task(self, podcast_id: int, user_id: int, articles_data: li
         audio_filename = f"podcast_{podcast_id}_{user_id}_{timestamp}.wav"
         
         try:
-            # Run TTS generation in asyncio context
-            audio_path = asyncio.run(tts_service.generate_podcast_audio(script, audio_filename))
+            # Run TTS generation in asyncio context with user's API key
+            audio_path = asyncio.run(tts_service.generate_podcast_audio(script, audio_filename, api_key=user_google_api_key))
             print(f"✅ Audio generation completed: {audio_path}")
         except Exception as audio_error:
             print(f"⚠️ Audio generation failed: {audio_error}")
@@ -107,30 +115,52 @@ def generate_podcast_task(self, podcast_id: int, user_id: int, articles_data: li
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    with SyncSessionLocal() as session:
-                        # Query podcast record
-                        stmt = select(models.Podcast).filter(models.Podcast.id == podcast_id)
-                        podcast = session.execute(stmt).scalars().first()
+                    with SyncSessionLocal() as db:
+                        print(f"🔍 Looking for podcast ID: {podcast_id} (attempt {attempt + 1})")
+                        
+                        # Query podcast record using sync session
+                        podcast_query = select(models.Podcast).where(models.Podcast.id == podcast_id)
+                        result = db.execute(podcast_query)
+                        podcast = result.scalar_one_or_none()
                         
                         if not podcast:
-                            raise Exception(f"Podcast record {podcast_id} not found")
+                            # Debug: List recent podcasts to see what exists
+                            recent_podcasts = db.execute(
+                                select(models.Podcast.id, models.Podcast.title, models.Podcast.created_at)
+                                .order_by(models.Podcast.created_at.desc())
+                                .limit(5)
+                            ).fetchall()
+                            print(f"❌ Podcast {podcast_id} not found. Recent podcasts: {[(p.id, p.title, p.created_at) for p in recent_podcasts]}")
+                            
+                            if attempt < max_retries - 1:
+                                print(f"⏳ Retrying in 3 seconds...")
+                                import time
+                                time.sleep(3)
+                                continue
+                            return False
+                        
+                        print(f"✅ Found podcast: {podcast.id} - {podcast.title}")
                         
                         # Update podcast fields
                         podcast.script = script
-                        if audio_path and os.path.exists(audio_path):
-                            podcast.audio_file_path = audio_path
+                        podcast.audio_file_path = audio_path if audio_path else ""
+                        podcast.status = "completed" if audio_path else "script_only"
+                        podcast.generated_at = datetime.utcnow()
                         
-                        session.commit()
-                        print(f"✅ Podcast record updated: {podcast_id}")
+                        # Commit changes
+                        db.commit()
+                        print(f"✅ Database updated successfully")
                         return True
                         
-                except Exception as e:
-                    print(f"❌ Database update failed (attempt {attempt + 1}/{max_retries}): {e}")
-                    if attempt == max_retries - 1:
-                        raise
-                    import time
-                    time.sleep(2)  # Wait 2 seconds before retry
-                    
+                except Exception as db_error:
+                    print(f"❌ Database update failed (attempt {attempt + 1}/{max_retries}): {db_error}")
+                    import traceback
+                    traceback.print_exc()
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(3)
+                    continue
+            
             return False
         
         # Run database update

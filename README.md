@@ -1,1 +1,3 @@
-A web software that enable user to get daily news with ai podcast.
+# Let's break the information gap.
+
+A web application that transforms RSS feeds into personalized AI-generated podcasts, helping users stay informed through audio content tailored to their interests.

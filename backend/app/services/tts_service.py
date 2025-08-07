@@ -2,10 +2,11 @@ import google.genai as genai
 from google.genai import types
 import wave
 import time
+import asyncio
 from pathlib import Path
+from fastapi import HTTPException
 from app.config import settings
 
-# Ensure directory exists
 PODCASTS_DIR = Path("podcasts")
 PODCASTS_DIR.mkdir(exist_ok=True)
 
@@ -151,11 +152,13 @@ def _split_script_by_chars(script: str, num_chunks: int) -> list:
     
     return chunks
 
-def _generate_single_chunk(script: str, output_filename: str) -> str:
+def _generate_single_chunk(script: str, output_filename: str, api_key: str = None) -> str:
     """
     Generate single audio segment - Use non-streaming API for better stability
     """
-    client = genai.Client(api_key=settings.google_api_key)
+    # Use user's API key if provided, otherwise fall back to system default
+    google_api_key = api_key or settings.google_api_key
+    client = genai.Client(api_key=google_api_key)
     
     try:
         print(f"🎵 Generating audio segment: {len(script)} characters")
@@ -216,7 +219,7 @@ def _generate_single_chunk(script: str, output_filename: str) -> str:
         print(f"❌ Audio segment generation failed: {error_msg}")
         raise Exception(f"Segment generation failed: {error_msg}")
 
-def _generate_audio_sync(script: str, output_filename: str) -> str:
+def _generate_audio_sync(script: str, output_filename: str, api_key: str = None) -> str:
     """
     Intelligent segmented TTS generation - Automatically calculate optimal number of segments
     """
@@ -230,7 +233,7 @@ def _generate_audio_sync(script: str, output_filename: str) -> str:
     if num_chunks == 1:
         print("📝 Script is short, using single call...")
         try:
-            return _generate_single_chunk(script, output_filename)
+            return _generate_single_chunk(script, output_filename, api_key)
         except Exception as e:
             if "timeout" in str(e).lower() or "disconnected" in str(e).lower():
                 print("⚠️ Single call timeout, forcing split into 2 segments...")
@@ -255,7 +258,7 @@ def _generate_audio_sync(script: str, output_filename: str) -> str:
         
         try:
             print(f"\n🎯 Processing segment {i+1}/{len(chunks)}...")
-            chunk_path = _generate_single_chunk(chunk, chunk_filename)
+            chunk_path = _generate_single_chunk(chunk, chunk_filename, api_key)
             chunk_files.append(chunk_path)
             
             # API call interval (avoid rate limiting)
@@ -308,10 +311,10 @@ def _generate_audio_sync(script: str, output_filename: str) -> str:
     return str(final_output)
 
 # Async wrapper - compatible with existing code
-async def generate_podcast_audio(script: str, output_filename: str) -> str:
+async def generate_podcast_audio(script: str, output_filename: str, api_key: str = None) -> str:
     """Async wrapper"""
     from fastapi.concurrency import run_in_threadpool
-    return await run_in_threadpool(_generate_audio_sync, script, output_filename)
+    return await run_in_threadpool(_generate_audio_sync, script, output_filename, api_key)
 
 def estimate_tokens(text: str) -> int:
     """Estimate token count for text"""
@@ -320,12 +323,13 @@ def estimate_tokens(text: str) -> int:
 async def generate_podcast_audio_with_retry(
     script: str, 
     output_filename: str,
+    api_key: str = None,
     max_retries: int = 3
 ) -> str:
     """Podcast audio generation with retry mechanism"""
     for attempt in range(max_retries):
         try:
-            return await generate_podcast_audio(script, output_filename)
+            return await generate_podcast_audio(script, output_filename, api_key)
         except Exception as e:
             if "quota" in str(e).lower():
                 raise HTTPException(

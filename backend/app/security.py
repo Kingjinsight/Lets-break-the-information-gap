@@ -31,3 +31,25 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+async def get_user_from_token(token: str, db):
+    """Get user from JWT token without using FastAPI dependencies"""
+    from app import crud
+    
+    class AuthException(Exception):
+        pass
+    
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise AuthException("Invalid token payload")
+    except JWTError:
+        raise AuthException("Invalid token")
+    
+    user = await crud.get_user_by_email(db, email=email)
+    if user is None:
+        raise AuthException("User not found")
+    
+    return user

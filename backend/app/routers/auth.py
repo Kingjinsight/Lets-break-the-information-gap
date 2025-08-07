@@ -70,3 +70,15 @@ async def get_current_active_user(
         raise credentials_exception
     
     return user
+
+
+@router.get("/me", response_model=schemas.UserProfile)
+async def get_current_user_info(
+    current_user: models.User = Depends(get_current_active_user)
+):
+    """Get current user information"""
+    return current_user
+    if user is None:
+        raise credentials_exception
+    
+    return user

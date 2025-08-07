@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.future import select
-from sqlalchemy import text
+from sqlalchemy import text, func
 from . import models, schemas
 import httpx
 import feedparser
@@ -62,7 +62,24 @@ async def create_article(db: AsyncSession, article: schemas.ArticleCreate, sourc
     Creates a new Article object and adds it to the database session.
     This function does NOT commit the transaction.
     """
-    db_article = models.Article(**article.model_dump(), source_id=source_id)
+    article_dict = article.model_dump()
+    
+
+    article_dict['source_id'] = source_id
+
+    db_article = models.Article(
+        title=article_dict['title'],
+        content=article_dict['content'], 
+        article_url=article_dict['article_url'],
+        author=article_dict.get('author', 'Unknown Author'),
+        published_date=article_dict.get('published_date'),
+        fetched_at=article_dict.get('fetched_at') or datetime.now(),
+        source_id=source_id,
+        summary=article_dict.get('summary', ''),
+        is_read=False,
+        read_at=None
+    )
+    
     db.add(db_article)
     return db_article
 
@@ -82,9 +99,11 @@ async def get_articles_for_today(db: AsyncSession, user_id: int) -> list[models.
     
     query = (
         select(models.Article)
+        .options(selectinload(models.Article.source))
         .join(models.RssSource)
         .filter(models.RssSource.user_id == user_id)
         .filter(models.Article.fetched_at >= today_start)
+        .order_by(models.Article.fetched_at.desc())
     )
     
     result = await db.execute(query)
@@ -296,3 +315,51 @@ async def get_podcast_with_articles(db: AsyncSession, podcast_id: int, user_id: 
     
     result = await db.execute(query)
     return result.scalar_one_or_none()
+
+async def get_user_articles_count(db: AsyncSession, user_id: int) -> int:
+    """Get total count of articles for a user"""
+    query = (
+        select(func.count(models.Article.id))
+        .join(models.RssSource)
+        .where(models.RssSource.user_id == user_id)
+    )
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+# ======================= User Settings =======================
+async def get_user_settings(db: AsyncSession, user_id: int):
+    """Get user settings, create default if not exists"""
+    query = select(models.UserSettings).filter(models.UserSettings.user_id == user_id)
+    result = await db.execute(query)
+    settings = result.scalars().first()
+    
+    if not settings:
+        # Create default settings
+        settings = models.UserSettings(user_id=user_id)
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+    
+    return settings
+
+async def update_user_settings(db: AsyncSession, user_id: int, settings_update: schemas.UserSettingsUpdate):
+    """Update user settings"""
+    query = select(models.UserSettings).filter(models.UserSettings.user_id == user_id)
+    result = await db.execute(query)
+    settings = result.scalars().first()
+    
+    if not settings:
+        # Create new settings if not exists
+        settings_data = settings_update.model_dump(exclude_unset=True)
+        settings = models.UserSettings(user_id=user_id, **settings_data)
+        db.add(settings)
+    else:
+        # Update existing settings
+        settings_data = settings_update.model_dump(exclude_unset=True)
+        for key, value in settings_data.items():
+            setattr(settings, key, value)
+    
+    await db.commit()
+    await db.refresh(settings)
+    return settings
