@@ -6,8 +6,11 @@ A web application that transforms RSS feeds into personalized multi-speaker podc
 
 ✨ [Live Demo](https://lets-break-the-information-gap-frontend.onrender.com/) ✨
 
-Here is a demo podcast:
-![Audio](readmeSources/podcast_demo.wav)
+✨ Here is a demo podcast: ✨
+<audio controls>
+  <source src="readmeSources/podcast_demo.wav" type="audio/wav">
+  Your browser does not support the audio element.
+</audio>
 
 ## Features
 - **Personalized Podcast Feeds**: Fetch articles from any number of RSS sources into a single, coherent audio experience.
