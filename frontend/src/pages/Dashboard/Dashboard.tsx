@@ -6,7 +6,6 @@ import {
   Play, 
   Rss, 
   FileText, 
-  TrendingUp, 
   Sparkles,
   Plus,
   Loader
