@@ -9,7 +9,7 @@ A web application that transforms RSS feeds into personalized multi-speaker podc
 
 ✨ Here is a demo podcast: ✨     
 
-[](https://kingjinsight.github.io/Lets-break-the-information-gap/readmeSources/podcast_demo.mp4)
+![video](https://kingjinsight.github.io/Lets-break-the-information-gap/readmeSources/podcast_demo.mp4)
 
 
 
