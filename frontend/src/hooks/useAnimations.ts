@@ -1,42 +1,50 @@
 import { useCallback } from 'react';
-import { AnimationUtils } from '../utils/animations';
 
 export const useAnimations = () => {
-  const animatePageEnter = useCallback((selector = '.page-content') => {
-    return AnimationUtils.pageEnter(selector);
+  const animatePageEnter = useCallback((_selector = '.page-content') => {
+    // This hook is outdated. The logic is now handled by Framer Motion props.
+    // Returning a dummy object to avoid breaking components that use this hook.
+    return {};
   }, []);
 
-  const animateCards = useCallback((selector = '.card') => {
-    const elements = document.querySelectorAll(selector);
-    return AnimationUtils.cardStagger(elements);
+  const animateCards = useCallback((_selector = '.card') => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateSelection = useCallback((element: HTMLElement) => {
-    return AnimationUtils.selectionBounce(element);
+  const animateSelection = useCallback((_element: HTMLElement) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateButtonClick = useCallback((element: HTMLElement) => {
-    return AnimationUtils.buttonPulse(element);
+  const animateButtonClick = useCallback((_element: HTMLElement) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateProgress = useCallback((element: HTMLElement, progress: number) => {
-    return AnimationUtils.progressBar(element, progress);
+  const animateProgress = useCallback((_element: HTMLElement, _progress: number) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateSuccess = useCallback((element: HTMLElement) => {
-    return AnimationUtils.successCheck(element);
+  const animateSuccess = useCallback((_element: HTMLElement) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateError = useCallback((element: HTMLElement) => {
-    return AnimationUtils.shakeError(element);
+  const animateError = useCallback((_element: HTMLElement) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateHoverIn = useCallback((element: HTMLElement) => {
-    return AnimationUtils.hoverLift(element);
+  const animateHoverIn = useCallback((_element: HTMLElement) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
-  const animateHoverOut = useCallback((element: HTMLElement) => {
-    return AnimationUtils.hoverReset(element);
+  const animateHoverOut = useCallback((_element: HTMLElement) => {
+    // This hook is outdated.
+    return {};
   }, []);
 
   return {
@@ -53,14 +61,8 @@ export const useAnimations = () => {
 };
 
 export const useCardAnimations = () => {
-  const setupCardHovers = useCallback((selector = '.card') => {
-    const cards = document.querySelectorAll(selector);
-    cards.forEach((card) => {
-      const element = card as HTMLElement;
-      element.addEventListener('mouseenter', () => AnimationUtils.hoverLift(element));
-      element.addEventListener('mouseleave', () => AnimationUtils.hoverReset(element));
-      element.addEventListener('click', () => AnimationUtils.selectionBounce(element));
-    });
+  const setupCardHovers = useCallback((_selector = '.card') => {
+    // This hook is outdated.
   }, []);
 
   return {

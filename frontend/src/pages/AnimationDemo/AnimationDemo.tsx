@@ -5,7 +5,6 @@ import {
   Rss, 
   FileText, 
   Headphones,
-  Calendar,
   Users,
   Zap,
   CheckCircle
@@ -22,7 +21,7 @@ const AnimationDemo: React.FC = () => {
   const [loadingType, setLoadingType] = useState<'spinner' | 'pulse' | 'bounce' | 'wave'>('spinner');
   
   const pageRef = useRef<HTMLDivElement>(null);
-  const { animatePageEnter, animateCards, animateSelection } = useAnimations();
+  const { animatePageEnter, animateCards } = useAnimations();
 
   // Page entrance animation
   useEffect(() => {
@@ -119,60 +118,49 @@ const AnimationDemo: React.FC = () => {
       <div className="demo-card glass-card p-8">
         <h2 className="text-2xl font-bold mb-6 flex items-center">
           <Play className="mr-2 text-blue-500" />
-          Interactive Buttons
+          Animated Buttons
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <AnimatedButton
-            onClick={() => handleButtonClick('primary')}
-            variant="primary"
-            animationType="pulse"
-            icon={<FileText className="h-4 w-4" />}
-          >
-            Primary Button
-          </AnimatedButton>
-          
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <AnimatedButton
             onClick={() => handleButtonClick('success')}
-            variant="accent"
-            animationType="glow"
-            icon={<CheckCircle className="h-4 w-4" />}
+            variant="primary"
+            icon={<Play />}
           >
-            Success Action
+            Primary Action
           </AnimatedButton>
-          
+          <AnimatedButton
+            onClick={() => handleButtonClick('accent')}
+            variant="accent"
+            icon={<CheckCircle />}
+          >
+            Accent Action
+          </AnimatedButton>
           <AnimatedButton
             onClick={() => handleButtonClick('error')}
             variant="danger"
-            animationType="bounce"
-            icon={<Zap className="h-4 w-4" />}
+            icon={<Rss />}
           >
-            Error Demo
-          </AnimatedButton>
-          
-          <AnimatedButton
-            onClick={() => handleButtonClick('loading')}
-            variant="secondary"
-            loading={true}
-            icon={<Headphones className="h-4 w-4" />}
-          >
-            Loading State
+            Danger Action
           </AnimatedButton>
         </div>
       </div>
 
-      {/* Loading Animations */}
-      <div className="demo-card glass-card p-8">
+      {/* Loading Spinners */}
+      <div className="demo-card">
         <h2 className="text-2xl font-bold mb-6 flex items-center">
-          <Calendar className="mr-2 text-green-500" />
-          Loading Animations
+          <Zap className="mr-2 text-yellow-500" />
+          Loading Spinners
         </h2>
-        
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-2">Animation Type:</label>
+        <div className="flex items-center justify-around p-4">
+          <LoadingSpinner size="sm" />
+          <LoadingSpinner size="md" text="Loading..." />
+          <LoadingSpinner size="lg" text="Processing data..." color="primary" />
+        </div>
+        <div className="mt-4 text-center">
           <select 
             value={loadingType} 
-            onChange={(e) => setLoadingType(e.target.value as 'spinner' | 'pulse' | 'bounce' | 'wave')}
-            className="px-3 py-2 border rounded-md"
+            onChange={(e) => setLoadingType(e.target.value as any)}
+            className="p-2 rounded bg-gray-700 text-white"
           >
             <option value="spinner">Spinner</option>
             <option value="pulse">Pulse</option>
@@ -180,76 +168,29 @@ const AnimationDemo: React.FC = () => {
             <option value="wave">Wave</option>
           </select>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="text-center">
-            <h3 className="text-lg font-semibold mb-4">Small</h3>
-            <LoadingSpinner size="sm" type={loadingType} />
-          </div>
-          <div className="text-center">
-            <h3 className="text-lg font-semibold mb-4">Medium</h3>
-            <LoadingSpinner 
-              size="md" 
-              type={loadingType} 
-              text="Loading articles..."
-            />
-          </div>
-          <div className="text-center">
-            <h3 className="text-lg font-semibold mb-4">Large</h3>
-            <LoadingSpinner 
-              size="lg" 
-              type={loadingType} 
-              text="Generating podcast..."
-              color="primary"
-            />
-          </div>
-        </div>
       </div>
 
-      {/* Notification Demo */}
-      <div className="demo-card glass-card p-8">
+      {/* Notification Toasts */}
+      <div className="demo-card">
         <h2 className="text-2xl font-bold mb-6 flex items-center">
-          <Users className="mr-2 text-purple-500" />
-          Notification System
+          <Zap className="mr-2 text-yellow-500" />
+          Notification Toasts
         </h2>
-        
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {(['success', 'error', 'warning', 'info'] as const).map((type) => (
-            <AnimatedButton
-              key={type}
-              onClick={() => {
-                setNotificationType(type);
-                setShowNotification(true);
-              }}
-              variant={type === 'error' ? 'danger' : 'primary'}
-              size="sm"
-            >
-              Show {type.charAt(0).toUpperCase() + type.slice(1)}
-            </AnimatedButton>
-          ))}
+        {showNotification && (
+          <NotificationToast
+            type={notificationType}
+            title={`${notificationType.charAt(0).toUpperCase() + notificationType.slice(1)}!`}
+            message={`This is a sample ${notificationType} notification.`}
+            onClose={() => setShowNotification(false)}
+            duration={5000}
+          />
+        )}
+        <div className="flex space-x-4">
+          <button onClick={() => { setNotificationType('success'); setShowNotification(true); }} className="btn-primary">Success</button>
+          <button onClick={() => { setNotificationType('error'); setShowNotification(true); }} className="btn-danger">Error</button>
+          <button onClick={() => { setNotificationType('warning'); setShowNotification(true); }} className="btn-warning">Warning</button>
+          <button onClick={() => { setNotificationType('info'); setShowNotification(true); }} className="btn-info">Info</button>
         </div>
-      </div>
-
-      {/* Notification Toast */}
-      {showNotification && (
-        <NotificationToast
-          type={notificationType}
-          title={`${notificationType.charAt(0).toUpperCase() + notificationType.slice(1)} Notification`}
-          message={`This is a ${notificationType} notification with beautiful animations!`}
-          onClose={() => setShowNotification(false)}
-          duration={4000}
-          position="top-right"
-        />
-      )}
-
-      {/* Footer */}
-      <div className="text-center py-8">
-        <p className="text-gray-500">
-          🎭 All animations are powered by <strong>anime.js</strong> and <strong>Framer Motion</strong>
-        </p>
-        <p className="text-sm text-gray-400 mt-2">
-          Hover over cards and buttons to see more animations!
-        </p>
       </div>
     </div>
   );

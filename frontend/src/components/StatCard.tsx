@@ -1,5 +1,4 @@
 import React, { useRef, useEffect } from 'react';
-import { AnimationUtils } from '../utils/animations';
 
 interface StatCardProps {
   title: string;
@@ -24,32 +23,9 @@ const StatCard: React.FC<StatCardProps> = ({
   const valueRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
-    if (cardRef.current) {
-      // Animate card entrance with proper selector
-      setTimeout(() => {
-        AnimationUtils.pageEnter(cardRef.current!);
-      }, delay);
-
-      // Set up hover effects
-      const card = cardRef.current;
-      const handleMouseEnter = () => AnimationUtils.hoverLift(card);
-      const handleMouseLeave = () => AnimationUtils.hoverReset(card);
-
-      card.addEventListener('mouseenter', handleMouseEnter);
-      card.addEventListener('mouseleave', handleMouseLeave);
-
-      // Animate counter if numeric value
-      if (animateValue && valueRef.current && typeof value === 'number') {
-        setTimeout(() => {
-          AnimationUtils.counterUp(valueRef.current!, value, 1500);
-        }, delay + 200);
-      }
-
-      return () => {
-        card.removeEventListener('mouseenter', handleMouseEnter);
-        card.removeEventListener('mouseleave', handleMouseLeave);
-      };
-    }
+    // The animation logic here was based on a different animation system.
+    // It's being removed to fix build errors. The parent component (Dashboard.tsx)
+    // now handles animations using Framer Motion.
   }, [value, animateValue, delay]);
 
   return (
