@@ -119,30 +119,23 @@ const Dashboard: React.FC = () => {
     {
       name: "Today's Articles",
       value: todayArticles?.data?.length || 0,
-      change: "+12",
+      change: "",
       icon: FileText,
       gradient: 'from-blue-500 to-blue-600',
     },
     {
       name: 'Total Podcasts',
       value: podcasts?.data?.length || 0,
-      change: "+3",
+      change: "",
       icon: Play,
       gradient: 'from-green-500 to-green-600',
     },
     {
       name: 'RSS Sources',
       value: rssSources?.data?.length || 0,
-      change: "+1",
+      change: "",
       icon: Rss,
       gradient: 'from-purple-500 to-purple-600',
-    },
-    {
-      name: 'This Week',
-      value: "7",
-      change: "+2",
-      icon: TrendingUp,
-      gradient: 'from-accent-500 to-accent-600',
     },
   ];
 

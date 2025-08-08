@@ -269,7 +269,7 @@ const RssSourceCard: React.FC<{
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-lg mb-1 truncate" 
               style={{ color: 'var(--color-text-primary)' }}>
-            {source.title || 'Untitled RSS Source'}
+            {source.title || source.name || 'Untitled RSS Source'}
           </h3>
           
           <div className="flex items-center space-x-4 text-sm mb-2" 
@@ -375,7 +375,7 @@ const AddRssSourceModal: React.FC<{
       const response = await rssApi.validateSource(urlToValidate);
       setValidationResult(response.data);
       
-      // If validation is successful and no custom title is set, use the feed title
+      // Only auto-fill title if user hasn't manually entered one and current title is empty or matches the previous auto-detected title
       if (response.data.valid && response.data.feed_info?.title && !title.trim()) {
         setTitle(response.data.feed_info.title);
       }
@@ -442,7 +442,7 @@ const AddRssSourceModal: React.FC<{
   const tabs = [
     { id: 'manual' as const, label: 'Add RSS URL', icon: Globe },
     { id: 'social' as const, label: 'YouTube RSS', icon: Zap },
-    { id: 'quick' as const, label: 'I break gaps', icon: Rss }
+    { id: 'quick' as const, label: 'Common RSS', icon: Rss }
   ];
 
   return (
