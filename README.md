@@ -7,10 +7,10 @@ A web application that transforms RSS feeds into personalized multi-speaker podc
 ✨ [Live Demo](https://lets-break-the-information-gap-frontend.onrender.com/) ✨
 
 
-✨ Here is a demo podcast: ✨
+✨ Here is a demo podcast: ✨     
 
 <video controls width="600">
-  <source src="readmeSources/podcast_demo.mp4" type="video/mp4">
+  <source src="https://kingjinsight.github.io/Lets-break-the-information-gap/readmeSources/podcast_demo.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
