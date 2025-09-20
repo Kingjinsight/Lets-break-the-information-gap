@@ -61,6 +61,10 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+    volumes:
+      - ./backend/podcasts:/app/podcasts
+      - ./backend/podcasts:/podcasts
+      - ./backend/static:/app/static
     command: >
       bash -lc "celery -A app.celery_app.celery_app worker -l info"
     restart: unless-stopped
