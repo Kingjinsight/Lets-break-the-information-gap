@@ -4,9 +4,9 @@ A web application that transforms RSS feeds into personalized multi-speaker podc
 
 ![dashboard](readmeSources/dashboard.png)
 
-✨ [Frontend Live Demo](https://lets-break-the-information-gap-frontend.onrender.com/) ✨
+[Official website](https://lbtig.kingportal.tech/)
 
-✨ Here is a demo podcast: ✨     
+Here is a demo podcast:  
 
 https://github.com/user-attachments/assets/6a2bdf09-957c-48b4-bfb1-8c8c541e9a7e
 
@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/6a2bdf09-957c-48b4-bfb1-8c8c541e9a7e
 5. Now you can generate your personal daily podcast
 
 ## Roadmap
-- **2025-09**: Migrate deployment from Render to my personal server
+- **2025-09**: Migrate deployment from Render to my personal server ✅ - 2025.09.21
 - **2025-10**: Add more social medias RSS feeds
 - **2025-12**: Multi-format input file support
 - **Future**:
